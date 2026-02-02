@@ -1,0 +1,270 @@
+local ADDON = ...
+local TCS = CreateFrame("Frame")
+
+-------------------------------------------------
+-- Defaults
+-------------------------------------------------
+local defaults = {
+    locked = false,
+    point = "CENTER",
+    relativePoint = "CENTER",
+    xOfs = 0,
+    yOfs = -200,
+    scale = 1,
+    layout = "HORIZONTAL",
+    padding = 4,
+}
+
+local DB
+
+-------------------------------------------------
+-- HOLDER
+-------------------------------------------------
+local holder = CreateFrame("Frame", "TCS_Holder", UIParent, "BackdropTemplate")
+holder:SetSize(80,36)
+holder:SetMovable(true)
+holder:EnableMouse(true)
+holder:RegisterForDrag("LeftButton")
+holder:SetClampedToScreen(true)
+holder:SetBackdrop({ bgFile = "Interface/Tooltips/UI-Tooltip-Background" })
+holder:SetBackdropColor(0,0,0,0)
+holder:SetFrameStrata("DIALOG")
+
+holder:SetScript("OnDragStart", function(self)
+    if not DB or DB.locked then return end
+    self:StartMoving()
+end)
+
+holder:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    local point, _, relativePoint, xOfs, yOfs = self:GetPoint()
+    DB.point = point
+    DB.relativePoint = relativePoint
+    DB.xOfs = xOfs
+    DB.yOfs = yOfs
+end)
+
+-------------------------------------------------
+-- ICONS
+-------------------------------------------------
+local slots = {13,14}
+local icons = {}
+
+local function CreateIcon(index,slot)
+    local icon = CreateFrame("Frame",nil,holder)
+    icon:SetSize(36,36)
+    icon:EnableMouse(false)
+
+    icon.texture = icon:CreateTexture(nil,"BACKGROUND")
+    icon.texture:SetAllPoints()
+    icon.texture:SetTexCoord(.08,.92,.08,.92)
+
+    icon.cooldown = CreateFrame("Cooldown", nil, icon, "CooldownFrameTemplate")
+    icon.cooldown:SetAllPoints()
+    icon.cooldown:SetHideCountdownNumbers(true)
+
+    icon.text = icon:CreateFontString(nil,"OVERLAY","GameFontHighlightLarge")
+    icon.text:SetPoint("CENTER")
+
+    icon.slot = slot
+    icon.endTime = nil
+    icon.ready = false
+
+    -- OnUpdate checks remaining cooldown every frame
+    icon:SetScript("OnUpdate", function(self)
+        if self.endTime then
+            local remain = self.endTime - GetTime()
+            if remain <= 0 then
+                -- Immediately mark ready and restore full color
+                self.endTime = nil
+                self.ready = true
+                self.texture:SetDesaturated(false)
+                self.text:SetText("")
+            else
+                if remain < 10 then
+                    self.text:SetFormattedText("%.1f",remain)
+                else
+                    self.text:SetFormattedText("%d",remain)
+                end
+            end
+        end
+    end)
+
+    return icon
+end
+
+-------------------------------------------------
+-- UPDATE
+-------------------------------------------------
+local function UpdateIcon(icon)
+    local itemID = GetInventoryItemID("player",icon.slot)
+    if not itemID then
+        icon:Hide()
+        return
+    end
+
+    icon.texture:SetTexture(GetInventoryItemTexture("player",icon.slot))
+    local start,duration,enable = GetInventoryItemCooldown("player",icon.slot)
+    local now = GetTime()
+
+    if enable==1 and duration>1.5 and (start+duration>now) then
+        icon.cooldown:SetCooldown(start,duration)
+        icon.endTime=start+duration
+        icon.ready = false
+        icon.texture:SetDesaturated(true) -- grayscale while on CD
+    else
+        icon.cooldown:Clear()
+        icon.text:SetText("")
+        icon.endTime=nil
+        icon.ready = true
+        icon.texture:SetDesaturated(false) -- full color immediately
+    end
+
+    icon:Show()
+end
+
+local function UpdateAll()
+    local shown = 0
+    local pad = DB.padding or 4
+    local horiz = DB.layout == "HORIZONTAL"
+
+    for i,icon in ipairs(icons) do
+        UpdateIcon(icon)
+        if icon:IsShown() then
+            shown = shown + 1
+            icon:ClearAllPoints()
+            if horiz then
+                icon:SetPoint("LEFT", (shown-1)*(36+pad), 0)
+            else
+                icon:SetPoint("TOP", 0, -(shown-1)*(36+pad))
+            end
+        end
+    end
+
+    if horiz then
+        holder:SetWidth(math.max(36, shown*(36+pad)))
+        holder:SetHeight(36)
+    else
+        holder:SetWidth(36)
+        holder:SetHeight(math.max(36, shown*(36+pad)))
+    end
+end
+
+-------------------------------------------------
+-- CONFIG (same as last working version)
+-------------------------------------------------
+local config = CreateFrame("Frame","TCS_Config",UIParent,"BackdropTemplate")
+config:SetSize(240,240)
+config:SetPoint("CENTER")
+config:SetBackdrop({
+    bgFile="Interface/Tooltips/UI-Tooltip-Background",
+    edgeFile="Interface/Tooltips/UI-Tooltip-Border",
+    tile=true, tileSize=16, edgeSize=12
+})
+config:SetBackdropColor(0,0,0,0.9)
+config:SetFrameStrata("DIALOG")
+config:Hide()
+tinsert(UISpecialFrames, "TCS_Config")
+
+local title = config:CreateFontString(nil,"OVERLAY","GameFontNormal")
+title:SetPoint("TOP",0,-8)
+title:SetText("Trinket Cooldowns")
+
+local close = CreateFrame("Button", nil, config, "UIPanelCloseButton")
+close:SetPoint("TOPRIGHT", -4, -4)
+
+local lock = CreateFrame("CheckButton",nil,config,"ChatConfigCheckButtonTemplate")
+lock:SetPoint("TOPLEFT",12,-30)
+lock.Text:SetText("Lock frame")
+lock:SetScript("OnClick",function(self)
+    DB.locked=self:GetChecked()
+end)
+
+local reset = CreateFrame("Button",nil,config,"UIPanelButtonTemplate")
+reset:SetSize(120,24)
+reset:SetPoint("TOPLEFT",12,-60)
+reset:SetText("Reset Position")
+reset:SetScript("OnClick",function()
+    DB.point="CENTER"
+    DB.relativePoint="CENTER"
+    DB.xOfs=0
+    DB.yOfs=-200
+    holder:ClearAllPoints()
+    holder:SetPoint("CENTER",0,-200)
+end)
+
+local layout = CreateFrame("CheckButton", nil, config, "ChatConfigCheckButtonTemplate")
+layout:SetPoint("TOPLEFT",12,-90)
+layout.Text:SetText("Vertical layout")
+layout:SetScript("OnClick", function(self)
+    DB.layout = self:GetChecked() and "VERTICAL" or "HORIZONTAL"
+    UpdateAll()
+end)
+
+local padSlider = CreateFrame("Slider", "TCS_Padding", config, "OptionsSliderTemplate")
+padSlider:SetPoint("TOPLEFT",10,-120)
+padSlider:SetMinMaxValues(0,20)
+padSlider:SetValueStep(1)
+padSlider:SetWidth(200)
+_G[padSlider:GetName().."Low"]:SetText("0")
+_G[padSlider:GetName().."High"]:SetText("20")
+_G[padSlider:GetName().."Text"]:SetText("Padding")
+padSlider:SetScript("OnValueChanged", function(self,val)
+    DB.padding = math.floor(val)
+    UpdateAll()
+end)
+
+local scaleSlider = CreateFrame("Slider", "TCS_Scale", config, "OptionsSliderTemplate")
+scaleSlider:SetPoint("TOPLEFT",10,-160)
+scaleSlider:SetMinMaxValues(0.5,2)
+scaleSlider:SetValueStep(0.05)
+scaleSlider:SetWidth(200)
+_G[scaleSlider:GetName().."Low"]:SetText("0.5")
+_G[scaleSlider:GetName().."High"]:SetText("2")
+_G[scaleSlider:GetName().."Text"]:SetText("Scale")
+scaleSlider:SetScript("OnValueChanged", function(self,val)
+    val=tonumber(string.format("%.2f",val))
+    DB.scale=val
+    holder:SetScale(val)
+end)
+
+-------------------------------------------------
+-- SLASH
+-------------------------------------------------
+SLASH_TCS1="/trinkets"
+SLASH_TCS2="/stt"
+SlashCmdList.TCS = function()
+    config:SetShown(not config:IsShown())
+    lock:SetChecked(DB.locked)
+    layout:SetChecked(DB.layout=="VERTICAL")
+    padSlider:SetValue(DB.padding)
+    scaleSlider:SetValue(DB.scale)
+end
+
+-------------------------------------------------
+-- LOGIN
+-------------------------------------------------
+TCS:RegisterEvent("PLAYER_LOGIN")
+TCS:SetScript("OnEvent", function()
+    TrinketCooldownStandaloneDB = TrinketCooldownStandaloneDB or {}
+    DB = TrinketCooldownStandaloneDB
+
+    for k,v in pairs(defaults) do
+        if DB[k]==nil then DB[k]=v end
+    end
+
+    holder:SetScale(DB.scale)
+    holder:ClearAllPoints()
+    holder:SetPoint(DB.point, UIParent, DB.relativePoint, DB.xOfs, DB.yOfs)
+
+    for i,slot in ipairs(slots) do
+        icons[i] = CreateIcon(i,slot)
+    end
+
+    TCS:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+    TCS:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+    TCS:RegisterEvent("BAG_UPDATE_COOLDOWN")
+    TCS:SetScript("OnEvent", UpdateAll)
+
+    UpdateAll()
+end)
