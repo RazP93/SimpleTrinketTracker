@@ -1,7 +1,7 @@
 # SimpleTrinketTracker
 # Trinket Cooldown Standalone
 
-**Version:** 1.3  
+**Version:** 1.5 
 **Author:** Bro_Raz
 
 ---
@@ -16,7 +16,7 @@ Features include:
 - Desaturates icon when on cooldown; full color when ready.  
 - Cooldown timer text on icons.  
 - Movable, scalable frame with vertical or horizontal layout.  
-- Config window with lock/unlock, padding, and scale sliders.  
+- Config window with lock/unlock, padding, scale sliders and as of V1.5 opacity slider also 
 - Slash commands: `/trinkets` or `/stt` to open settings.
 
 ---
